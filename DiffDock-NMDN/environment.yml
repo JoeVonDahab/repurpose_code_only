@@ -1,0 +1,34 @@
+name: diffdock_nmdn
+channels:
+  - pyg
+  - pytorch
+  - nvidia
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.8
+  - pytorch=2.2
+  - torchvision
+  - torchaudio
+  - pytorch-cuda=12.1
+  - pyg
+  - rdkit
+  - prody
+  - seaborn
+  - tqdm
+  - pyyaml
+  - omegaconf
+  - ase
+  - dscribe
+  - mdanalysis
+  - tensorboardx
+  - unidecode
+  - gsd=1.9.3
+  - treelib
+  - pip
+  - pip:
+      - fair-esm==2.0.0
+      - fairscale
+      - meeko
+      - spyrmsd
+      - dive-into-graphs
