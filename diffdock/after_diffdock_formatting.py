@@ -4,6 +4,7 @@ import json
 import csv
 import re
 import argparse
+import numpy as np
 from rdkit import Chem
 
 def extract_molecule_name_from_sdf(sdf_content):
@@ -25,6 +26,46 @@ def extract_smiles_from_sdf(sdf_content):
     except:
         pass
     return "N/A"
+
+def get_geometric_center_from_sdf(sdf_content):
+    """Calculate geometric center from SDF content using coordinates."""
+    try:
+        mol = Chem.MolFromMolBlock(sdf_content)
+        if mol is None:
+            return None
+        
+        conf = mol.GetConformer()
+        coords = []
+        for i in range(mol.GetNumAtoms()):
+            pos = conf.GetAtomPosition(i)
+            coords.append([pos.x, pos.y, pos.z])
+        
+        if not coords:
+            return None
+        return np.mean(np.array(coords), axis=0)
+    except Exception as e:
+        print(f"Warning: Could not calculate geometric center from SDF: {e}")
+        return None
+
+def is_center_in_box(center_coords, box_min, box_max):
+    """Check if the geometric center is within the defined box."""
+    if center_coords is None:
+        return False
+    return (box_min[0] <= center_coords[0] <= box_max[0] and
+            box_min[1] <= center_coords[1] <= box_max[1] and
+            box_min[2] <= center_coords[2] <= box_max[2])
+
+def parse_box_coordinates(box_string):
+    """Parse box coordinates from string format: 'x_min,y_min,z_min,x_max,y_max,z_max'"""
+    try:
+        coords = [float(x.strip()) for x in box_string.split(',')]
+        if len(coords) != 6:
+            raise ValueError("Box coordinates must have exactly 6 values")
+        box_min = np.array([coords[0], coords[1], coords[2]])
+        box_max = np.array([coords[3], coords[4], coords[5]])
+        return box_min, box_max
+    except Exception as e:
+        raise ValueError(f"Invalid box coordinates format: {e}. Expected format: 'x_min,y_min,z_min,x_max,y_max,z_max'")
 
 def load_smiles_mapping(smiles_file_path):
     """Load SMILES mapping from approved_drugs.smi file"""
@@ -125,6 +166,8 @@ def main():
     parser.add_argument('--input_dir', required=True, help='Input directory containing SDF files')
     parser.add_argument('--output_dir', required=True, help='Output directory for DiffDock results')
     parser.add_argument('--smiles_file', default='approved_drugs.smi', help='SMILES mapping file (default: approved_drugs.smi)')
+    parser.add_argument('--box_filter', default=None, 
+                       help='Optional box coordinates for filtering poses: "x_min,y_min,z_min,x_max,y_max,z_max"')
     
     args = parser.parse_args()
     
@@ -132,6 +175,19 @@ def main():
     input_dir = args.input_dir
     base_path = args.output_dir
     smiles_file_path = args.smiles_file
+    
+    # Parse box filter if provided
+    box_min = None
+    box_max = None
+    if args.box_filter:
+        try:
+            box_min, box_max = parse_box_coordinates(args.box_filter)
+            print(f"Box filter enabled: min={box_min}, max={box_max}")
+        except ValueError as e:
+            print(f"Error parsing box coordinates: {e}")
+            return
+    else:
+        print("No box filter specified - all poses will be processed")
     
     best_poses_dir = os.path.join(base_path, "best_poses")
     os.makedirs(best_poses_dir, exist_ok=True)
@@ -218,8 +274,31 @@ def main():
         # Find best pose and save to best_poses directory
         valid_confidences = [c for c in confidences if c is not None]
         if valid_confidences and sdf_entries:
-            highest_conf = max(valid_confidences)
-            best_pose_idx = confidences.index(highest_conf)
+            # If box filter is specified, filter poses first
+            if box_min is not None and box_max is not None:
+                # Find poses within the box
+                poses_in_box = []
+                for idx, sdf in enumerate(sdf_entries):
+                    if confidences[idx] is not None:
+                        center = get_geometric_center_from_sdf(sdf)
+                        if is_center_in_box(center, box_min, box_max):
+                            poses_in_box.append((idx, confidences[idx]))
+                
+                # If poses found in box, use the best one from the box
+                if poses_in_box:
+                    # Sort by confidence and get the best pose in the box
+                    poses_in_box.sort(key=lambda x: x[1], reverse=True)
+                    best_pose_idx, highest_conf = poses_in_box[0]
+                    print(f"Found {len(poses_in_box)} poses in box for {mol_name}, using best (confidence: {highest_conf:.4f})")
+                else:
+                    # No poses in box, fall back to original best pose
+                    highest_conf = max(valid_confidences)
+                    best_pose_idx = confidences.index(highest_conf)
+                    print(f"No poses in box for {mol_name}, using overall best (confidence: {highest_conf:.4f})")
+            else:
+                # No box filter, use original logic
+                highest_conf = max(valid_confidences)
+                best_pose_idx = confidences.index(highest_conf)
             
             # Save best pose with molecule name
             clean_name = re.sub(r'[<>:"/\\|?*]', '_', mol_name)  # Clean filename

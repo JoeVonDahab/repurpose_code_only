@@ -1,10 +1,10 @@
 #!/bin/bash
 
 # add protein & library paths & output paths here
-protein_path="jobs/benchmarking/PPARG/PPARG_5y2t.pdb" # your protein 
-output_path="jobs/benchmarking/PPARG/PPARG_output" # output path for the results
-sdf_files="diffdock/ligand_sdf_files_PPARG/" # path to the sdf files to be docked
-smiles_file="diffdock/PPARG.smi" # path to the smiles file of the library 
+protein_path="jobs/benchmarking/TP53/5o1i_TP53.pdb" # your protein 
+output_path="jobs/benchmarking/TP53/TP53_output" # output path for the results
+sdf_files="diffdock/ligand_sdf_files_TP53/" # path to the sdf files to be docked
+smiles_file="diffdock/TP53.smi" # path to the smiles file of the library 
 
 # =======================================================================================
 best_poses_path=$output_path/best_poses/
@@ -12,6 +12,16 @@ gnina_output_path=$output_path/gnina_output/
 gnina_csv_path=$output_path/gnina_output.csv
 nmdn_csv_path=$output_path/nmdn_output.csv
 nmdn_csv_path=$output_path/nmdn_output.csv
+
+# =======================================================================================
+# box filter coordinates (optional)
+x_min=85.703
+y_min=84.720
+z_min=–52.789
+x_max=95.433
+y_max=103.941
+z_max=–39.985
+# =======================================================================================
 
 if [ ! -d "$best_poses_path" ]; then
     mkdir -p "$best_poses_path"
@@ -43,8 +53,12 @@ CPUS_PER_CONTAINER=0.8
 source ~/.bashrc
 conda activate diffdock
 python diffdock/diffdock_using_api.py --input_dir $sdf_files --output_dir $output_path --receptor_path $protein_path
-python diffdock/after_diffdock_formatting.py --input_dir $sdf_files --output_dir $output_path --smiles_file $smiles_file
- 
+
+# With box filter - uncomment and modify coordinates as needed
+python diffdock/after_diffdock_formatting.py --input_dir $sdf_files --output_dir $output_path --smiles_file $smiles_file --box_filter "$x_min,$y_min,$z_min,$x_max,$y_max,$z_max"
+
+# Without box filter (original behavior)
+# python diffdock/after_diffdock_formatting.py --input_dir $sdf_files --output_dir $output_path --smiles_file $smiles_file
 
 bash gnina/run_gnina_max_throughput_sdf.sh --receptor_file "$protein_path" --ligand_files "$best_poses_path" --output_dir "$gnina_output_path" --num_gpus "$NUM_GPUS" --jobs_per_gpu "$JOBS_PER_GPU" --cleanup_interval "$CLEANUP_INTERVAL" --max_container_time "$MAX_CONTAINER_TIME" --gpu_temp_check "$GPU_TEMP_CHECK" --memory_per_container "$MEMORY_PER_CONTAINER" --cpus_per_container "$CPUS_PER_CONTAINER" 2>&1 | tee gnina_output.log
 
