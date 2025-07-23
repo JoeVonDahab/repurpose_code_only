@@ -290,34 +290,58 @@ def main():
                     poses_in_box.sort(key=lambda x: x[1], reverse=True)
                     best_pose_idx, highest_conf = poses_in_box[0]
                     print(f"Found {len(poses_in_box)} poses in box for {mol_name}, using best (confidence: {highest_conf:.4f})")
+                    
+                    # Save best pose with molecule name
+                    clean_name = re.sub(r'[<>:"/\\|?*]', '_', mol_name)  # Clean filename
+                    best_pose_filename = f"{clean_name}_best_pose.sdf"
+                    best_pose_path = os.path.join(best_poses_dir, best_pose_filename)
+                    
+                    with open(best_pose_path, "w") as f:
+                        f.write(sdf_entries[best_pose_idx])
+                    
+                    ligand_confidences.append((f"ligand_{i}", highest_conf))
+                    molecule_data.append({
+                        'ligand_id': f"ligand_{i}",
+                        'molecule_name': mol_name,
+                        'smiles': mol_smiles,
+                        'confidence_score': highest_conf,
+                        'original_file': mol_info['original_file']
+                    })
+                    
+                    print(f"Processed {mol_name}: confidence {highest_conf:.4f}")
                 else:
-                    # No poses in box, fall back to original best pose
-                    highest_conf = max(valid_confidences)
-                    best_pose_idx = confidences.index(highest_conf)
-                    print(f"No poses in box for {mol_name}, using overall best (confidence: {highest_conf:.4f})")
+                    # No poses in box, skip this ligand
+                    print(f"No poses within box for {mol_name}, skipping ligand")
+                    molecule_data.append({
+                        'ligand_id': f"ligand_{i}",
+                        'molecule_name': mol_name,
+                        'smiles': mol_smiles,
+                        'confidence_score': 'N/A - No poses in box',
+                        'original_file': mol_info['original_file']
+                    })
             else:
                 # No box filter, use original logic
                 highest_conf = max(valid_confidences)
                 best_pose_idx = confidences.index(highest_conf)
-            
-            # Save best pose with molecule name
-            clean_name = re.sub(r'[<>:"/\\|?*]', '_', mol_name)  # Clean filename
-            best_pose_filename = f"{clean_name}_best_pose.sdf"
-            best_pose_path = os.path.join(best_poses_dir, best_pose_filename)
-            
-            with open(best_pose_path, "w") as f:
-                f.write(sdf_entries[best_pose_idx])
-            
-            ligand_confidences.append((f"ligand_{i}", highest_conf))
-            molecule_data.append({
-                'ligand_id': f"ligand_{i}",
-                'molecule_name': mol_name,
-                'smiles': mol_smiles,
-                'confidence_score': highest_conf,
-                'original_file': mol_info['original_file']
-            })
-            
-            print(f"Processed {mol_name}: confidence {highest_conf:.4f}")
+                
+                # Save best pose with molecule name
+                clean_name = re.sub(r'[<>:"/\\|?*]', '_', mol_name)  # Clean filename
+                best_pose_filename = f"{clean_name}_best_pose.sdf"
+                best_pose_path = os.path.join(best_poses_dir, best_pose_filename)
+                
+                with open(best_pose_path, "w") as f:
+                    f.write(sdf_entries[best_pose_idx])
+                
+                ligand_confidences.append((f"ligand_{i}", highest_conf))
+                molecule_data.append({
+                    'ligand_id': f"ligand_{i}",
+                    'molecule_name': mol_name,
+                    'smiles': mol_smiles,
+                    'confidence_score': highest_conf,
+                    'original_file': mol_info['original_file']
+                })
+                
+                print(f"Processed {mol_name}: confidence {highest_conf:.4f}")
         else:
             print(f"No valid confidence values in {ligand_folder}, skipping.")
             molecule_data.append({
