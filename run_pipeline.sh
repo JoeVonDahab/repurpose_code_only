@@ -1,10 +1,10 @@
 #!/bin/bash
 
 # add protein & library paths & output paths here
-protein_path="jobs/benchmarking/TP53/5o1i_TP53.pdb" # your protein 
-output_path="jobs/benchmarking/TP53/TP53_output" # output path for the results
-sdf_files="diffdock/ligand_sdf_files_TP53/" # path to the sdf files to be docked
-smiles_file="diffdock/TP53.smi" # path to the smiles file of the library 
+protein_path="jobs/NLRP3/9hg4_NLRP3.pdb" # your protein 
+output_path="jobs/NLRP3/9hg4_NLRP3_output" # output path for the results
+sdf_files="diffdock/fda_sdf_files/" # path to the sdf files to be docked
+smiles_file="diffdock/approved_drugs.smi" # path to the smiles file of the library 
 
 # =======================================================================================
 best_poses_path=$output_path/best_poses/
@@ -15,12 +15,12 @@ nmdn_csv_path=$output_path/nmdn_output.csv
 
 # =======================================================================================
 # box filter coordinates (optional)
-x_min=85.703
-y_min=84.720
-z_min=–52.789
-x_max=95.433
-y_max=103.941
-z_max=–39.985
+x_min=-24.5545
+y_min=-42.0420
+z_min=-13.1308
+x_max=-9.4153
+y_max=-26.6402
+z_max=3.2860
 # =======================================================================================
 
 if [ ! -d "$best_poses_path" ]; then
@@ -51,11 +51,20 @@ CPUS_PER_CONTAINER=0.8
 # which means 28 * 0.8 = 22.4 CPU cores per GPU so you need at least 22.4 CPU threads for 1 GPU
 
 source ~/.bashrc
+eval "$(conda shell.bash hook)"
 conda activate diffdock
-python diffdock/diffdock_using_api.py --input_dir $sdf_files --output_dir $output_path --receptor_path $protein_path
+
+echo "Debug: Checking paths..."
+echo "SDF files dir: $sdf_files"
+echo "Output path: $output_path"
+echo "Protein path: $protein_path"
+echo "SMILES file: $smiles_file"
+
+python diffdock/diffdock_using_api.py --input_dir "$sdf_files" --output_dir "$output_path" --receptor_path "$protein_path"
 
 # With box filter - uncomment and modify coordinates as needed
-python diffdock/after_diffdock_formatting.py --input_dir $sdf_files --output_dir $output_path --smiles_file $smiles_file --box_filter "$x_min,$y_min,$z_min,$x_max,$y_max,$z_max"
+echo "Box coordinates: ${x_min},${y_min},${z_min},${x_max},${y_max},${z_max}"
+python diffdock/after_diffdock_formatting.py --input_dir "$sdf_files" --output_dir "$output_path" --smiles_file "$smiles_file" --box_filter="${x_min},${y_min},${z_min},${x_max},${y_max},${z_max}"
 
 # Without box filter (original behavior)
 # python diffdock/after_diffdock_formatting.py --input_dir $sdf_files --output_dir $output_path --smiles_file $smiles_file

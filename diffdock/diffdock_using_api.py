@@ -10,6 +10,8 @@ def parse_arguments():
     parser.add_argument('--input_dir', required=True, help='Directory containing SDF files')
     parser.add_argument('--output_dir', required=True, help='Output directory for results')
     parser.add_argument('--receptor_path', required=True, help='Path to receptor PDB file')
+    parser.add_argument('--force_reprocess', action='store_true', 
+                       help='Force reprocessing of all ligands, even if already completed')
     return parser.parse_args()
 
 # ---- CONFIG ----
@@ -68,6 +70,21 @@ def process_ligand(idx, sdf_file):
     try:
         ligand_path = os.path.join(input_dir, sdf_file)
         out_folder = os.path.join(output_dir, f"ligand_{idx}")
+        
+        # Check if ligand has already been processed successfully (unless force_reprocess is True)
+        if not args.force_reprocess:
+            response_file = os.path.join(out_folder, "response_text.txt")
+            if os.path.exists(response_file):
+                # Check if the response file contains valid data (not empty and has expected content)
+                try:
+                    with open(response_file, 'r') as f:
+                        content = f.read().strip()
+                        if content and '"trajectory"' in content:  # Basic check for valid response
+                            print(f"Skipping ligand_{idx} ({sdf_file}) - already processed")
+                            return
+                except Exception:
+                    pass  # If we can't read the file, proceed with processing
+        
         os.makedirs(out_folder, exist_ok=True)
 
         with open(ligand_path, "rb") as f:
@@ -116,6 +133,27 @@ def process_ligand(idx, sdf_file):
 # ---- MULTITHREADING EXECUTION ----
 os.makedirs(output_dir, exist_ok=True)
 sdf_files = sorted([f for f in os.listdir(input_dir) if f.endswith(".sdf")])
+
+print(f"Found {len(sdf_files)} SDF files to process")
+
+# Check how many are already processed (unless force_reprocess is True)
+if not args.force_reprocess:
+    already_processed = 0
+    for idx, sdf_file in enumerate(sdf_files):
+        out_folder = os.path.join(output_dir, f"ligand_{idx}")
+        response_file = os.path.join(out_folder, "response_text.txt")
+        if os.path.exists(response_file):
+            try:
+                with open(response_file, 'r') as f:
+                    content = f.read().strip()
+                    if content and '"trajectory"' in content:
+                        already_processed += 1
+            except Exception:
+                pass
+
+    print(f"Already processed: {already_processed}, To process: {len(sdf_files) - already_processed}")
+else:
+    print("Force reprocessing enabled - will process all ligands")
 
 # Reduce concurrency to avoid 429 errors
 max_workers = min(3, len(sdf_files))  # Try 2–3 threads instead of 8

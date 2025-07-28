@@ -353,11 +353,21 @@ def main():
             })
 
     # Sort molecules by confidence score (highest first)
-    molecule_data_sorted = sorted([m for m in molecule_data if m['confidence_score'] != 'N/A'], 
-                                 key=lambda x: x['confidence_score'], reverse=True)
-
-    # Add molecules with N/A confidence at the end
-    molecule_data_sorted.extend([m for m in molecule_data if m['confidence_score'] == 'N/A'])
+    # Filter out molecules with non-numeric confidence scores
+    valid_molecules = []
+    invalid_molecules = []
+    
+    for m in molecule_data:
+        if isinstance(m['confidence_score'], (int, float)) and m['confidence_score'] != 'N/A':
+            valid_molecules.append(m)
+        else:
+            invalid_molecules.append(m)
+    
+    # Sort valid molecules by confidence score (highest first)
+    molecule_data_sorted = sorted(valid_molecules, key=lambda x: x['confidence_score'], reverse=True)
+    
+    # Add molecules with invalid confidence scores at the end
+    molecule_data_sorted.extend(invalid_molecules)
 
     # Create CSV file with all molecule data
     csv_path = os.path.join(base_path, "molecule_results_ranked.csv")
@@ -398,7 +408,7 @@ def main():
         # Print summary
         print(f"\n=== SUMMARY ===")
         print(f"Total molecules processed: {len(molecule_data)}")
-        print(f"Molecules with valid confidence scores: {len([m for m in molecule_data if m['confidence_score'] != 'N/A'])}")
+        print(f"Molecules with valid confidence scores: {len(valid_molecules)}")
         print(f"Best poses saved to: {best_poses_dir}")
         print(f"CSV results saved to: {csv_path}")
         print(f"Selected top {len(top_100_ligands)} ligands by confidence.")
@@ -406,7 +416,10 @@ def main():
         
         if molecule_data_sorted:
             best_mol = molecule_data_sorted[0]
-            print(f"Best molecule: {best_mol['molecule_name']} (confidence: {best_mol['confidence_score']:.4f})")
+            if isinstance(best_mol['confidence_score'], (int, float)):
+                print(f"Best molecule: {best_mol['molecule_name']} (confidence: {best_mol['confidence_score']:.4f})")
+            else:
+                print(f"Best molecule: {best_mol['molecule_name']} (confidence: {best_mol['confidence_score']})")
     else:
         print("No valid confidence scores found!")
 
