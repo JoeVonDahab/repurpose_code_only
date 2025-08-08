@@ -60,26 +60,19 @@ echo "Output path: $output_path"
 echo "Protein path: $protein_path"
 echo "SMILES file: $smiles_file"
 
-python diffdock/diffdock_using_api.py --input_dir "$sdf_files" --output_dir "$output_path" --receptor_path "$protein_path"
+# python diffdock/diffdock_using_api.py --input_dir "$sdf_files" --output_dir "$output_path" --receptor_path "$protein_path"
 
 # With box filter - uncomment and modify coordinates as needed
 echo "Box coordinates: ${x_min},${y_min},${z_min},${x_max},${y_max},${z_max}"
-python diffdock/after_diffdock_formatting.py --input_dir "$sdf_files" --output_dir "$output_path" --smiles_file "$smiles_file" --box_filter="${x_min},${y_min},${z_min},${x_max},${y_max},${z_max}"
+# python diffdock/after_diffdock_formatting.py --input_dir "$sdf_files" --output_dir "$output_path" --smiles_file "$smiles_file" --box_filter="${x_min},${y_min},${z_min},${x_max},${y_max},${z_max}"
 
 # Without box filter (original behavior)
 # python diffdock/after_diffdock_formatting.py --input_dir $sdf_files --output_dir $output_path --smiles_file $smiles_file
 
-bash gnina/run_gnina_max_throughput_sdf.sh --receptor_file "$protein_path" --ligand_files "$best_poses_path" --output_dir "$gnina_output_path" --num_gpus "$NUM_GPUS" --jobs_per_gpu "$JOBS_PER_GPU" --cleanup_interval "$CLEANUP_INTERVAL" --max_container_time "$MAX_CONTAINER_TIME" --gpu_temp_check "$GPU_TEMP_CHECK" --memory_per_container "$MEMORY_PER_CONTAINER" --cpus_per_container "$CPUS_PER_CONTAINER" 2>&1 | tee gnina_output.log
+bash gnina/run_gnina_max_throughput_sdf_1.sh --receptor_file "$protein_path" --ligand_files "$best_poses_path" --output_dir "$gnina_output_path" --num_gpus "$NUM_GPUS" --jobs_per_gpu "$JOBS_PER_GPU" --cleanup_interval "$CLEANUP_INTERVAL" --max_container_time "$MAX_CONTAINER_TIME" --gpu_temp_check "$GPU_TEMP_CHECK" --memory_per_container "$MEMORY_PER_CONTAINER" --cpus_per_container "$CPUS_PER_CONTAINER" 2>&1 | tee gnina_output.log
 
 python gnina/make_csv.py --input_dir $gnina_output_path --csv_path $gnina_csv_path
 
 # Initialize conda and activate environment
 eval "$(conda shell.bash hook)"
-conda activate diffdock_nmdn
-
-bash DiffDock-NMDN/run.sh --best_poses_path "$best_poses_path" --protein "$protein_path" --csv_output "$nmdn_csv_path"
-
-echo "Best poses saved to $best_poses_path"
-echo "Gnina run completed. Output saved to $gnina_csv_path"
-echo "DiffDock-NMDN run completed. Output saved to $nmdn_csv_path"
 

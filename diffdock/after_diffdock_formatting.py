@@ -93,17 +93,37 @@ def extract_molecule_name_from_response(response_file_path):
             content = f.read()
             
         # Parse JSON to get trajectory
-        data = json.loads(content)
+        try:
+            data = json.loads(content)
+        except json.JSONDecodeError as e:
+            print(f"DEBUG - JSON parsing failed for {response_file_path}: {e}")
+            print(f"DEBUG - File size: {len(content)} characters")
+            print(f"DEBUG - First 200 characters: {content[:200]}")
+            print(f"DEBUG - Last 200 characters: {content[-200:]}")
+            return None
+            
         if 'trajectory' in data and data['trajectory']:
             trajectory = data['trajectory'][0]
             
-            # Extract what's between "COMPND " and "\nHETATM"
-            start = trajectory.find("COMPND ") + 7  # +7 to skip "COMPND "
-            end = trajectory.find("\nHETATM")
-            
-            if start > 6 and end > start:  # start > 6 means "COMPND " was found
-                molecule_name = trajectory[start:end].strip()
+            # Look for COMPND line and extract everything after it until newline
+            compnd_match = re.search(r'COMPND\s+([^\n]+)', trajectory)
+            if compnd_match:
+                molecule_name = compnd_match.group(1).strip()
                 return molecule_name
+            else:
+                # Try a more flexible pattern
+                model_match = re.search(r'MODEL\s*\n\s*COMPND\s+([^\n]+)', trajectory)
+                if model_match:
+                    molecule_name = model_match.group(1).strip()
+                    return molecule_name
+                
+                # If both patterns fail, show debug output
+                print(f"DEBUG - Failed to extract molecule name from {response_file_path}")
+                trajectory_lines = trajectory.split('\n')[:5]
+                print(f"DEBUG - First 5 lines of trajectory:")
+                for i, line in enumerate(trajectory_lines):
+                    print(f"  Line {i}: '{line}'")
+                print(f"DEBUG - No COMPND pattern found in trajectory")
                 
     except Exception as e:
         print(f"Error reading response file {response_file_path}: {e}")

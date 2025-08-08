@@ -103,17 +103,24 @@ if [ -z "$LIGAND_DIR" ]; then
 fi
 
 # --- Sanity Checks & Preparation ---
-if ! command -v parallel &> /dev/null; then
-    echo "ERROR: GNU Parallel is not installed. Please install it first."
-    exit 1
-fi
-
 ACTUAL_GPUS=$(nvidia-smi -L | wc -l)
 if [ "$NUM_GPUS" -gt "$ACTUAL_GPUS" ]; then
     echo "ERROR: Your configuration requests NUM_GPUS=$NUM_GPUS, but only $ACTUAL_GPUS GPUs were found."
     echo "Please set NUM_GPUS to $ACTUAL_GPUS or lower."
     exit 1
 fi
+
+# Detect host CPUs and allocate cores per container
+HOST_CPUS=$(nproc)
+CPUS_PER_CONTAINER=$(( HOST_CPUS / NUM_GPUS ))
+
+# fall back to 1 if arithmetic ever gives zero
+if [ "$CPUS_PER_CONTAINER" -lt 1 ]; then
+    CPUS_PER_CONTAINER=1
+fi
+
+echo "Host CPUs: $HOST_CPUS"
+echo "Allocating $CPUS_PER_CONTAINER CPU cores per GPU container"
 
 if [ ! -d "$LIGAND_DIR" ]; then
     echo "ERROR: Ligand directory not found: $LIGAND_DIR"
@@ -143,7 +150,7 @@ ulimit -n 65536
 MEMORY_CHECK_INTERVAL=500
 PROCESSED_COUNT=0
 
-# --- Create Master Ligand List ---
+# --- Create Master Ligand List & split into GPU chunks ---
 MASTER_LIST_FILE="all_ligands_to_process.txt"
 find "$LIGAND_DIR" -name "*.sdf" > "$MASTER_LIST_FILE"
 
@@ -154,66 +161,9 @@ if [ "$TOTAL_LIGANDS" -eq 0 ]; then
     exit 1
 fi
 
-# --- Create processing function ---
-process_ligand() {
-    ligand_file="$1"
-    GPU_ID=$(( (${PARALLEL_SEQ} - 1) % NUM_GPUS ))
-    base=$(basename "$ligand_file" .sdf)
-    output_file="$OUTPUT_DIR/${base}_scored.sdf"
-    
-    # Skip if output file already exists
-    if [ -f "$output_file" ]; then
-        echo "Skipping ligand $base - already scored (output file exists)"
-        return 0
-    fi
-    
-    echo "Processing ligand $base on GPU $GPU_ID (job ${PARALLEL_SEQ})"
-    
-    # Prepare paths for the container
-    ligand_path_in_container="/ligands/$(basename "$ligand_file")"
-    
-    # Get absolute path for receptor and mount its directory
-    RECEPTOR_ABS=$(realpath "$RECEPTOR_FILE")
-    RECEPTOR_DIR=$(dirname "$RECEPTOR_ABS")
-    RECEPTOR_NAME=$(basename "$RECEPTOR_ABS")
-    receptor_path_in_container="/receptor/$RECEPTOR_NAME"
-
-    # Run with only inner timeout (no double timeout)
-    docker run --rm --ipc=host --gpus "device=$GPU_ID" \
-      --memory="$MEMORY_PER_CONTAINER" \
-      --cpus="$CPUS_PER_CONTAINER" \
-      --label gnina_job=1 \
-      -v "$(realpath "$(pwd)")":/work \
-      -v "$(realpath "$LIGAND_DIR")":/ligands \
-      -v "$RECEPTOR_DIR":/receptor \
-      -w /work \
-      -e REC="$receptor_path_in_container" \
-      -e LIG="$ligand_path_in_container" \
-      -e OUT="$output_file" \
-      gnina/gnina:latest \
-      bash -c 'exec timeout -s TERM -k 15s '"${MAX_CONTAINER_TIME}"'s \
-        gnina --score_only --cnn_scoring all \
-              -r "$REC" \
-              -l "$LIG" \
-              --autobox_ligand "$LIG" \
-              -o "$OUT"'
-    
-    # Check if the job completed successfully
-    if [ $? -ne 0 ]; then
-        echo "ERROR: Job for ligand $base failed or timed out"
-        return 1
-    fi
-}
-
-# --- Export variables and function so they are available to the subshells created by parallel ---
-export LIGAND_DIR
-export RECEPTOR_FILE
-export OUTPUT_DIR
-export NUM_GPUS
-export MAX_CONTAINER_TIME
-export MEMORY_PER_CONTAINER
-export CPUS_PER_CONTAINER
-export -f process_ligand
+echo "Total ligands: $TOTAL_LIGANDS → splitting into $NUM_GPUS parts"
+# split into N roughly-equal parts: ligands_part_aa, ligands_part_ab, ...
+split -n l/$NUM_GPUS "$MASTER_LIST_FILE" ligands_part_
 
 TOTAL_JOBS=$((NUM_GPUS * JOBS_PER_GPU))
 
@@ -223,63 +173,70 @@ echo "Output Dir:    $OUTPUT_DIR"
 echo "Total Ligands: $TOTAL_LIGANDS"
 echo "GPUs to use:   $NUM_GPUS"
 echo "Jobs per GPU:  $JOBS_PER_GPU"
-echo "Total concurrent Docker containers: $TOTAL_JOBS"
+echo "Total concurrent gnina processes: $TOTAL_JOBS"
 echo "Memory per container: $MEMORY_PER_CONTAINER"
 echo "CPUs per container: $CPUS_PER_CONTAINER"
 echo "----------------------------------------------------"
-echo "Starting parallel processing... Progress will be shown below."
 
-# --- Run everything using GNU Parallel with periodic cleanup ---
-echo "Starting processing with periodic cleanup every $CLEANUP_INTERVAL jobs..."
+# --- Launch one worker container per GPU ---
+echo "Launching $NUM_GPUS worker containers (one per GPU)..."
+i=0
+for part in ligands_part_*; do
+    GPU_ID=$(( i % NUM_GPUS ))
+    echo "  • GPU $GPU_ID → processing $(wc -l < "$part") ligands (file: $part)"
 
-# Enhanced cleanup function
-cleanup_docker() {
-    echo "$(date): Running cleanup at job {#}..."
-    
-    # Check GPU temperatures before continuing
-    if [ "$GPU_TEMP_CHECK" = "true" ] && command -v nvidia-smi &> /dev/null; then
-        max_temp=$(nvidia-smi --query-gpu=temperature.gpu --format=csv,noheader,nounits | sort -nr | head -1)
-        if [ "$max_temp" -gt 75 ]; then
-            echo "WARNING: GPU temperature ($max_temp°C) is high. Pausing for 30 seconds..."
-            sleep 30
-        fi
-    fi
-    
-    # Kill containers running longer than timeout using timestamp comparison
-    now=$(date +%s)
-    for cid in $(docker ps --filter "label=gnina_job=1" -q); do
-        if [ ! -z "$cid" ]; then
-            start=$(docker inspect -f '{{.State.StartedAt}}' "$cid" 2>/dev/null)
-            if [ ! -z "$start" ]; then
-                start_s=$(date -d "$start" +%s 2>/dev/null)
-                if [ ! -z "$start_s" ] && (( now - start_s > MAX_CONTAINER_TIME )); then
-                    echo "Killing long-running container: $cid (running for $((now - start_s)) seconds)"
-                    docker kill "$cid" 2>/dev/null || true
-                    docker rm -f "$cid" 2>/dev/null || true
+    docker run --rm --ipc=host --gpus "device=$GPU_ID" \
+        --memory="$MEMORY_PER_CONTAINER" \
+        --cpus="$CPUS_PER_CONTAINER" \
+        --log-driver=none \
+        -v "$(realpath "$(pwd)")":/work \
+        -v "$(realpath "$LIGAND_DIR")":/ligands \
+        -v "$(dirname "$(realpath "$RECEPTOR_FILE")")":/receptor \
+        -w /work \
+        gnina/gnina:latest bash -c '
+            set -euo pipefail
+            # Allow GNINA to use all cores in this container
+            export OMP_NUM_THREADS='"$CPUS_PER_CONTAINER"'
+            
+            REC="/receptor/'"$(basename "$RECEPTOR_FILE")"'"
+            OUTDIR="'"$OUTPUT_DIR"'"
+            mkdir -p "$OUTDIR"
+
+            # Create a simple processing function
+            process_ligand() {
+                ligand_path="$1"
+                base=$(basename "$ligand_path" .sdf)
+                out="$OUTDIR/${base}_scored.sdf"
+                
+                if [ -f "$out" ]; then
+                    echo "[skip] $base"
+                    return 0
                 fi
-            fi
-        fi
-    done
-    
-    # System cleanup
-    docker system prune -f > /dev/null 2>&1 || true
-    
-    # Brief pause to let system stabilize
-    sleep 5
-    
-    echo "$(date): Cleanup completed"
-}
+                
+                echo "[GPU '"$GPU_ID"'] scoring $base... (threads=$OMP_NUM_THREADS)"
+                timeout -s TERM -k 15s '"$MAX_CONTAINER_TIME"'s \
+                    gnina --score_only --cnn_scoring all \
+                          -r "$REC" \
+                          -l "/ligands/$(basename "$ligand_path")" \
+                          --autobox_ligand "/ligands/$(basename "$ligand_path")" \
+                          -o "$out"
+            }
+            
+            export -f process_ligand
+            export REC OUTDIR OMP_NUM_THREADS
+            
+            # Use xargs to process ligands in parallel
+            cat '"$part"' | xargs -n1 -P '"$JOBS_PER_GPU"' -I {} bash -c "process_ligand {}"
+        ' &
 
-# Export cleanup function
-export -f cleanup_docker
+    ((i++))
+done
 
-# Run with periodic cleanup
-cat "$MASTER_LIST_FILE" | parallel -j "$TOTAL_JOBS" --eta --joblog gnina_parallel.log \
-  --line-buffer \
-  'if (( {#} % '$CLEANUP_INTERVAL' == 0 )); then cleanup_docker; fi; process_ligand {}'
+# wait for all GPU workers to finish
+wait
 
-# --- Cleanup ---
-rm "$MASTER_LIST_FILE"
+# --- Cleanup temporary split files ---
+rm ligands_part_* "$MASTER_LIST_FILE"
 
 echo "----------------------------------------------------"
-echo "All jobs completed. Check '$OUTPUT_DIR' for results and 'gnina_parallel.log' for a detailed log."
+echo "All jobs completed. Check '$OUTPUT_DIR' for results."
