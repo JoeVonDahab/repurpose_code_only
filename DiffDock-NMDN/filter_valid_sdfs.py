@@ -9,10 +9,36 @@ def is_valid_sdf(sdf_file):
     try:
         with SDMolSupplier(sdf_file, removeHs=False, sanitize=False, strictParsing=False) as supp:
             for mol in supp:
-                if mol is not None and mol.GetNumConformers() > 0:
-                    conf = mol.GetConformer()
-                    if conf is not None:
-                        return True
+                if mol is None:
+                    return False
+                if mol.GetNumConformers() == 0:
+                    return False
+                conf = mol.GetConformer()
+                if conf is None:
+                    return False
+                    
+                # Additional validation for AutoDock converted files
+                try:
+                    # Try to sanitize the molecule to catch chemical errors
+                    Chem.SanitizeMol(mol)
+                    
+                    # Check for valid coordinates (not all zeros)
+                    coords = conf.GetPositions()
+                    if len(coords) == 0:
+                        return False
+                    
+                    # Check if all coordinates are zero (invalid)
+                    if all(abs(x) < 1e-6 and abs(y) < 1e-6 and abs(z) < 1e-6 for x, y, z in coords):
+                        return False
+                        
+                    # Try to add hydrogens to catch valence errors
+                    mol_with_h = Chem.AddHs(mol, addCoords=True)
+                    if mol_with_h is None:
+                        return False
+                        
+                    return True
+                except (Chem.AtomValenceException, Chem.KekulizeException, ValueError, AttributeError):
+                    return False
         return False
     except Exception:
         return False
