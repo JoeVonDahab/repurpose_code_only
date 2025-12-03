@@ -55,7 +55,7 @@ This pipeline requires the following external tools and repositories:
 - **Single Cell Seq**: [JoeVonDahab/single_cell_seq](https://github.com/JoeVonDahab/single_cell_seq) *(private)*
 - **Atorvastatin Project**: [JoeVonDahab/atovastatin_project](https://github.com/JoeVonDahab/atovastatin_project) *(private)*
 
-> **Note**: For access to private repositories, please email the author.
+> **Note**: For access to private repositories, please email the author: youssef.nageh@live.com
 
 ### 2. Environment Setup
 
@@ -118,3 +118,4 @@ conda activate pd_repurposing
 **Youssef Abo-Dahab, Pharm.D.** — Student Intern, Zhao Lab, UCSF
 
 GitHub: [@JoeVonDahab](https://github.com/JoeVonDahab)
+
