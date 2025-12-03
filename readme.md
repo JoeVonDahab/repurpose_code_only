@@ -39,7 +39,25 @@ Our benchmarking on the LIT-PCBA dataset revealed critical insights for pipeline
 
 ## 🔧 Installation & Setup
 
-### 1. Environment Setup
+### 1. Dependencies
+
+This pipeline requires the following external tools and repositories:
+
+#### Public Dependencies
+
+- **DiffDock-NMDN**: [SongXia-NYU/DiffDock-NMDN](https://github.com/SongXia-NYU/DiffDock-NMDN)
+- **AutoDock-GPU**: [ccsb-scripps/AutoDock-GPU](https://github.com/ccsb-scripps/AutoDock-GPU)
+- **GNINA**: [Docker Image](https://hub.docker.com/r/gnina/gnina)
+- **DiffDock**: [gcorso/DiffDock](https://github.com/gcorso/DiffDock)
+
+#### Private Dependencies (Request Access Required)
+
+- **Single Cell Seq**: [JoeVonDahab/single_cell_seq](https://github.com/JoeVonDahab/single_cell_seq) *(private)*
+- **Atorvastatin Project**: [JoeVonDahab/atovastatin_project](https://github.com/JoeVonDahab/atovastatin_project) *(private)*
+
+> **Note**: For access to private repositories, please email the author.
+
+### 2. Environment Setup
 
 ```bash
 # Clone the repository
@@ -50,7 +68,7 @@ cd repurpose_code_only
 ./setup.sh
 ```
 
-### 2. Data Download (Large Files via rclone & gdown)
+### 3. Data Download (Large Files via rclone & gdown)
 
 Large model weights (e.g., for DiffDock) are hosted externally. Use the following commands to manage them.
 
